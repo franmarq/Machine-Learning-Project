@@ -1,0 +1,144 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "franmarq@gmail.com"
+date: "08 de marzo de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Executive Summary
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+
+### Data Preparation
+
+First i load the packages that i need to process and read the data from the source in the web, initially i do some cleaning task. I'm going to set a seed pseudo-random number at '7472' for all code, it for make reproducible the results. 
+
+
+```{r}
+library(caret); library(randomForest);library(rpart); library(curl); library(lattice); library(ggplot2)
+```
+
+```{r}
+#### Data training
+
+URL<- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+train = read.csv(file=URL, na.strings=c("NA","#DIV/0!", ""))#detect blanks in variables and change for NA 
+train <- subset(train, select=-c(1:6)) #remove row numbers, time stamp and user names
+train2<-train[,colSums(is.na(train)) == 0] #remove columns with at least an NA value
+classe <- train2$classe #save classe information
+train2 <- train2[,sapply(train2,is.numeric)] # remove non-numeric variables
+train2$classe <- classe; rm(classe) #add classe information and delete variable
+
+dim(train2)
+
+
+#### Data testing
+
+URL2<- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+test = read.csv(file=URL2, na.strings=c("NA","#DIV/0!", ""))# detect blanks in variables and change for NA
+test <- subset(test, select=-c(1:6)) #remove row numbers, time stamp and user names
+test2 <-test[,colSums(is.na(test)) == 0] #remove columns with at least a NA value
+test2 <- test2[,sapply(test2,is.numeric)] # remove non-numeric variables
+
+dim(test2)
+```
+
+i have to Identify set column name differences bacause it will be important in the assesment stage (predcition with test set)
+```{r}
+trainCol <- names(train2)
+testCol <- names(test2)
+
+setdiff(trainCol, testCol)
+setdiff(testCol, trainCol)
+
+#### in the train data set is the classe variable and in the test data set is the problem_id variable. We haave to consider this difference with we run the model in prediction with test data
+
+```
+
+
+### Cross-Validation
+
+to make cross validation, i used the caret package to divide the trainig set in 70% to sub training set and 20% to a sub testing set.
+
+```{r}
+set.seed(7472)
+samples <- createDataPartition(y=train2$classe, p=0.7, list=FALSE)
+sTrain <- train2[samples, ] 
+sTest <- train2[-samples, ]
+
+#### an initially distribution of the classe variable in the sub train data set
+
+plot(sTrain$classe,  main="classe in sub-Train data set", xlab="classe", ylab="Frequency")
+```
+
+### Modelling
+
+My idea is to run two models and compare it, i select the 'classe' variable like the outcome, this variables has 5 levels (sitting-down, standing-up, standing, walking, and sitting) collected on 8 hours of activities of 4 healthy subjects.
+
+
+#### First Model: Decision tree model
+```{r}
+set.seed(7472)
+modelTree <- rpart(classe ~ ., data=sTrain, method="class")
+
+#### Predicting:
+predicTree <- predict(modelTree, sTest, type = "class")
+
+#### Plot of the Decision Tree
+library(rattle)
+fancyRpartPlot(modelTree,cex=0.4)
+
+#### Now i test the results on our subTesting data set for this first model:
+confusionMatrix(predicTree, sTest$classe)
+```
+
+
+#### Second Model: Random Forest model
+```{r}
+set.seed(7472)
+modelForest <- randomForest(classe ~. , data=sTrain, method="class")
+
+#### Predicting:
+predicForest <- predict(modelForest, sTest, type = "class")
+
+#### Now i test the results on our subTesting data set for this first model:
+confusionMatrix(predicForest, sTest$classe)
+
+#### Most relevant 10 variables on the model
+VarImport <- varImp(modelForest)
+varImpPlot(modelForest,n.var = 10)
+
+```
+
+#### Decision
+Based in the results, i choose the Random Forest model because was better to predict the classe variable. 
+Tha Accuracy in Random Forest was 0.9959 against 0.7215 in the Decision Tree Model.
+
+
+### Submission (prediction)
+Now i'm goint to predict 20 values in the Testing data set usign the Random Forest Model selected, will predict 'Classe' for each 'problem_id'
+
+
+```{r}
+predictF <-predict(modelForest, type="class", newdata = test2[,-which(names(test) %in% "problem_id")])
+t(data.frame(problem_id = test2$problem_id, prediction = predictF))
+
+```
+
+
+
+### References
+
+[1] Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
